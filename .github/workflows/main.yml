@@ -1,0 +1,76 @@
+
+name: Build GTA 6 Clip Maker APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Check Project ZIP
+        run: |
+          if [ ! -f GTA6_Clip_Maker_Android_Project.zip ]; then
+            echo "Project ZIP not found in repository root"
+            exit 1
+          fi
+
+      - name: Extract Android Project
+        run: |
+          unzip -q GTA6_Clip_Maker_Android_Project.zip -d source
+
+      - name: Fix Java and Kotlin Targets
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          for p in Path("source").rglob("*"):
+              if p.name not in ("build.gradle", "build.gradle.kts"):
+                  continue
+              s = p.read_text()
+              s = s.replace("JavaVersion.VERSION_1_8", "JavaVersion.VERSION_17")
+              s = s.replace("VERSION_1_8", "VERSION_17")
+              s = s.replace('jvmTarget = "1.8"', 'jvmTarget = "17"')
+              s = s.replace("jvmTarget = '1.8'", "jvmTarget = '17'")
+              p.write_text(s)
+          PY
+
+      - name: Find Gradle Wrapper
+        id: project
+        run: |
+          GRADLEW=$(find source -name gradlew -type f | head -n 1)
+          if [ -z "$GRADLEW" ]; then
+            echo "Gradle wrapper not found"
+            exit 1
+          fi
+          echo "dir=$(dirname "$GRADLEW")" >> "$GITHUB_OUTPUT"
+
+      - name: Build Debug APK
+        working-directory: ${{ steps.project.outputs.dir }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: GTA6-Clip-Maker-APK
+          path: source/**/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          
